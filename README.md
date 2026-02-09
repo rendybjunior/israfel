@@ -1,6 +1,6 @@
 # Israfel
 
-![Israfel](israfel.jpg)
+<img src="israfel.jpg" width="200">
 
 Cloud billing kill switches. Automatically disable billing when monthly spending exceeds a configured threshold, preventing runaway costs.
 
