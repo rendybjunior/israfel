@@ -4,3 +4,4 @@
 .terraform/
 .terraform.lock.hcl
 function.zip
+tfplan
