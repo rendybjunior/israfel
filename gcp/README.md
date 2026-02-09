@@ -1,0 +1,150 @@
+# GCP Billing Kill Switch
+
+Automatically disables billing on a GCP project when monthly spending reaches a configured budget threshold.
+
+## Architecture
+
+```
+GCP Budget Alert (thresholds at 50%, 90%, 100%)
+       │
+       ▼
+Pub/Sub Topic: "billing-alerts"
+       │
+       ▼
+Cloud Function Gen 2 (Python 3.12): "billing-kill-switch"
+       │  costAmount >= budgetAmount?
+       ▼
+Cloud Billing API → unlink billing account → all billable services stopped
+```
+
+## Components
+
+| Resource | Purpose |
+|----------|---------|
+| `google_billing_budget` | Monitors monthly spending; publishes to Pub/Sub at 50%, 90%, 100% thresholds |
+| `google_pubsub_topic` | Receives budget alert notifications |
+| `google_cloudfunctions2_function` | Parses alerts and disables billing when threshold is breached |
+| `google_service_account` | Dedicated SA with minimal permissions for the function |
+| IAM bindings | `roles/billing.projectManager` (project), `roles/billing.viewer` (billing account) |
+
+## Prerequisites
+
+- [Terraform](https://developer.hashicorp.com/terraform/install) >= 1.5.0
+- [gcloud CLI](https://cloud.google.com/sdk/docs/install) authenticated via `gcloud auth application-default login`
+- The authenticated user must have:
+  - `roles/owner` or `roles/editor` on the GCP project
+  - `roles/billing.admin` on the billing account
+
+## Setup
+
+### 1. Configure variables
+
+Create `terraform/terraform.tfvars`:
+
+```hcl
+project_id            = "your-project-id"
+project_number        = "123456789012"
+billing_account       = "XXXXXX-XXXXXX-XXXXXX"
+monthly_budget_amount = 50
+```
+
+| Variable | Description | How to find it |
+|----------|-------------|----------------|
+| `project_id` | GCP project ID (string) | `gcloud config get-value project` |
+| `project_number` | GCP project number (numeric) | `gcloud projects describe PROJECT_ID --format='value(projectNumber)'` |
+| `billing_account` | Billing account ID | `gcloud billing accounts list` |
+| `monthly_budget_amount` | Spending cap (default currency: USD) | Your desired threshold |
+| `monthly_budget_currency` | Currency code (optional, default: `USD`) | |
+| `region` | GCP region (optional, default: `us-central1`) | |
+
+### 2. Deploy
+
+```bash
+cd terraform
+terraform init
+terraform plan
+terraform apply
+```
+
+### 3. Verify
+
+Check that all resources were created:
+
+```bash
+terraform output
+```
+
+## Testing
+
+### Simulate an over-budget notification
+
+```bash
+gcloud pubsub topics publish billing-alerts --message='{
+  "budgetDisplayName": "Test Budget",
+  "costAmount": 100.50,
+  "budgetAmount": 100.00,
+  "budgetAmountType": "SPECIFIED_AMOUNT",
+  "currencyCode": "USD",
+  "costIntervalStart": "2024-01-01T08:00:00Z",
+  "alertThresholdExceeded": 1.0
+}'
+```
+
+### Simulate an under-budget notification (should NOT trigger)
+
+```bash
+gcloud pubsub topics publish billing-alerts --message='{
+  "budgetDisplayName": "Test Budget",
+  "costAmount": 40.00,
+  "budgetAmount": 100.00,
+  "budgetAmountType": "SPECIFIED_AMOUNT",
+  "currencyCode": "USD",
+  "costIntervalStart": "2024-01-01T08:00:00Z",
+  "alertThresholdExceeded": 0.5
+}'
+```
+
+### Check function logs
+
+```bash
+gcloud functions logs read billing-kill-switch --region=us-central1 --gen2 --limit=20
+```
+
+### Check billing status
+
+```bash
+gcloud billing projects describe PROJECT_ID
+```
+
+### Re-enable billing after a test
+
+```bash
+gcloud billing projects link PROJECT_ID --billing-account=BILLING_ACCOUNT_ID
+```
+
+## How the Function Works
+
+1. Receives a CloudEvent from Pub/Sub containing a budget notification
+2. Decodes the base64-encoded message and parses the JSON payload
+3. Compares `costAmount` against `budgetAmount`
+4. If cost < budget: logs and exits (no action)
+5. If cost >= budget: checks if billing is already disabled (idempotent), then calls the Cloud Billing API to unlink the billing account from the project
+
+### Safety properties
+
+- **Idempotent** — checks billing status before attempting to disable; safe to receive duplicate messages
+- **Fail-open towards disabling** — if the billing status check fails, assumes billing is enabled and proceeds (safer direction for cost control)
+- **No retry** — uses `RETRY_POLICY_DO_NOT_RETRY` to avoid infinite loops; the budget system naturally re-sends on subsequent threshold checks
+
+## Important Caveats
+
+1. **Notifications are delayed.** GCP budget alerts can lag by several hours. Set your budget conservatively below your true maximum acceptable spend.
+2. **All services stop.** Disabling billing halts every billable service in the project, including this kill switch. This is intentional.
+3. **IAM propagation delay.** After deployment, IAM bindings can take up to 7 minutes to propagate. Wait before testing.
+
+## Cleanup
+
+```bash
+cd terraform
+terraform destroy
+```
