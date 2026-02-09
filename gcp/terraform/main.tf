@@ -14,8 +14,10 @@ terraform {
 }
 
 provider "google" {
-  project = var.project_id
-  region  = var.region
+  project               = var.project_id
+  region                = var.region
+  user_project_override = true
+  billing_project       = var.project_id
 }
 
 # ---------------------------------------------------------------------------
@@ -107,14 +109,6 @@ resource "google_billing_account_iam_member" "billing_viewer" {
   billing_account_id = var.billing_account
   role               = "roles/billing.viewer"
   member             = "serviceAccount:${google_service_account.billing_kill_switch.email}"
-}
-
-# Allow the GCP budget system to publish notifications to the topic.
-resource "google_pubsub_topic_iam_member" "budget_publisher" {
-  project = var.project_id
-  topic   = google_pubsub_topic.billing_alerts.name
-  role    = "roles/pubsub.publisher"
-  member  = "serviceAccount:billing-budgets@system.gserviceaccount.com"
 }
 
 # ---------------------------------------------------------------------------
@@ -239,6 +233,5 @@ resource "google_billing_budget" "monthly_budget" {
 
   depends_on = [
     google_project_service.billingbudgets,
-    google_pubsub_topic_iam_member.budget_publisher,
   ]
 }

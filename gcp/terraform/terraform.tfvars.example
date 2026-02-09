@@ -1,0 +1,5 @@
+project_id              = "your-project-id"       # gcloud config get-value project
+project_number          = "123456789012"          # gcloud projects describe PROJECT_ID --format='value(projectNumber)'
+billing_account         = "XXXXXX-XXXXXX-XXXXXX"  # gcloud billing accounts list
+monthly_budget_amount   = 50
+monthly_budget_currency = "IDR"                   # Must match billing account: gcloud billing accounts describe BILLING_ACCOUNT_ID --format='value(currencyCode)'

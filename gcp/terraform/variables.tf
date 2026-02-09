@@ -25,7 +25,6 @@ variable "monthly_budget_amount" {
 }
 
 variable "monthly_budget_currency" {
-  description = "The 3-letter ISO 4217 currency code for the budget."
+  description = "The 3-letter ISO 4217 currency code for the budget. Must match the billing account's currency. Find via: gcloud billing accounts describe BILLING_ACCOUNT_ID --format='value(currencyCode)'"
   type        = string
-  default     = "USD"
 }

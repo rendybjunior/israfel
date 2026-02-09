@@ -13,6 +13,7 @@ Cloud billing kill switches. Automatically disable billing when monthly spending
 Each cloud provider has its own directory with:
 - **Terraform modules** to provision all required infrastructure (alerts, functions, IAM, etc.)
 - **Function code** that receives billing notifications and disables billing when the threshold is breached
+- **Recovery script** to safely re-enable billing after the kill switch triggers
 
 The kill switch is a last-resort safety net. Once triggered, all billable services in the project/account are stopped.
 
@@ -23,13 +24,8 @@ The kill switch is a last-resort safety net. Once triggered, all billable servic
 ```bash
 cd gcp/terraform
 
-cat > terraform.tfvars <<EOF
-project_id            = "your-project-id"
-project_number        = "123456789012"
-billing_account       = "XXXXXX-XXXXXX-XXXXXX"
-monthly_budget_amount = 50
-EOF
-
+cp terraform.tfvars.example terraform.tfvars
+# Edit terraform.tfvars with your project details
 terraform init && terraform apply
 ```
 

@@ -30,7 +30,8 @@ Cloud Billing API → unlink billing account → all billable services stopped
 ## Prerequisites
 
 - [Terraform](https://developer.hashicorp.com/terraform/install) >= 1.5.0
-- [gcloud CLI](https://cloud.google.com/sdk/docs/install) authenticated via `gcloud auth application-default login`
+- [gcloud CLI](https://cloud.google.com/sdk/docs/install) (keep up to date via `gcloud components update`)
+- Authenticated via `gcloud auth application-default login`
 - The authenticated user must have:
   - `roles/owner` or `roles/editor` on the GCP project
   - `roles/billing.admin` on the billing account
@@ -39,31 +40,48 @@ Cloud Billing API → unlink billing account → all billable services stopped
 
 ### 1. Configure variables
 
-Create `terraform/terraform.tfvars`:
+Copy the example and fill in your values:
 
-```hcl
-project_id            = "your-project-id"
-project_number        = "123456789012"
-billing_account       = "XXXXXX-XXXXXX-XXXXXX"
-monthly_budget_amount = 50
+```bash
+cd terraform
+cp terraform.tfvars.example terraform.tfvars
 ```
 
-| Variable | Description | How to find it |
-|----------|-------------|----------------|
-| `project_id` | GCP project ID (string) | `gcloud config get-value project` |
-| `project_number` | GCP project number (numeric) | `gcloud projects describe PROJECT_ID --format='value(projectNumber)'` |
-| `billing_account` | Billing account ID | `gcloud billing accounts list` |
-| `monthly_budget_amount` | Spending cap (default currency: USD) | Your desired threshold |
-| `monthly_budget_currency` | Currency code (optional, default: `USD`) | |
-| `region` | GCP region (optional, default: `us-central1`) | |
+Use these commands to find the values:
+
+```bash
+gcloud config get-value project                                                      # project_id
+gcloud projects describe PROJECT_ID --format='value(projectNumber)'                  # project_number
+gcloud billing accounts list                                                         # billing_account
+gcloud billing accounts describe BILLING_ACCOUNT_ID --format='value(currencyCode)'   # monthly_budget_currency
+```
+
+Edit `terraform/terraform.tfvars`:
+
+```hcl
+project_id              = "your-project-id"
+project_number          = "123456789012"
+billing_account         = "XXXXXX-XXXXXX-XXXXXX"
+monthly_budget_amount   = 50
+monthly_budget_currency = "IDR"  # Must match your billing account's currency
+```
+
+| Variable | Description |
+|----------|-------------|
+| `project_id` | GCP project ID (string) |
+| `project_number` | GCP project number (numeric) |
+| `billing_account` | Billing account ID (format: `XXXXXX-XXXXXX-XXXXXX`) |
+| `monthly_budget_amount` | Spending cap in the billing account's currency |
+| `monthly_budget_currency` | **Must match your billing account's currency** (e.g. `USD`, `IDR`, `EUR`) |
+| `region` | GCP region (optional, default: `us-central1`) |
 
 ### 2. Deploy
 
 ```bash
 cd terraform
 terraform init
-terraform plan
-terraform apply
+terraform plan -out=tfplan
+terraform apply tfplan
 ```
 
 ### 3. Verify
@@ -84,7 +102,7 @@ gcloud pubsub topics publish billing-alerts --message='{
   "costAmount": 100.50,
   "budgetAmount": 100.00,
   "budgetAmountType": "SPECIFIED_AMOUNT",
-  "currencyCode": "USD",
+  "currencyCode": "IDR",
   "costIntervalStart": "2024-01-01T08:00:00Z",
   "alertThresholdExceeded": 1.0
 }'
@@ -98,7 +116,7 @@ gcloud pubsub topics publish billing-alerts --message='{
   "costAmount": 40.00,
   "budgetAmount": 100.00,
   "budgetAmountType": "SPECIFIED_AMOUNT",
-  "currencyCode": "USD",
+  "currencyCode": "IDR",
   "costIntervalStart": "2024-01-01T08:00:00Z",
   "alertThresholdExceeded": 0.5
 }'
@@ -119,8 +137,16 @@ gcloud billing projects describe PROJECT_ID
 ### Re-enable billing after a test
 
 ```bash
-gcloud billing projects link PROJECT_ID --billing-account=BILLING_ACCOUNT_ID
+./scripts/recover-billing.sh
 ```
+
+This script:
+
+1. Disables the kill switch (scales the Cloud Run service to 0) so budget alerts don't re-trigger it
+2. Re-links the billing account to the project
+3. Asks if you want to re-enable the kill switch
+
+Without step 1, re-enabling billing would immediately trigger the kill switch again because budget alerts keep firing until the next billing cycle.
 
 ## How the Function Works
 
