@@ -1,5 +1,7 @@
 # Israfel
 
+![Israfel](israfel.jpg)
+
 Cloud billing kill switches. Automatically disable billing when monthly spending exceeds a configured threshold, preventing runaway costs.
 
 ## Supported Clouds
