@@ -39,23 +39,27 @@ if [ -z "$PROJECT_ID" ] || [ -z "$BILLING_ACCOUNT" ]; then
   exit 1
 fi
 
+SERVICE_ACCOUNT="billing-kill-switch@${PROJECT_ID}.iam.gserviceaccount.com"
+
 echo "Project:         $PROJECT_ID"
 echo "Billing account: $BILLING_ACCOUNT"
 echo "Region:          $REGION"
 echo "Function:        $FUNCTION_NAME"
+echo "Service account: $SERVICE_ACCOUNT"
 echo ""
 
 # ---------------------------------------------------------------------------
-# Step 1: Disable the kill switch
+# Step 1: Disable the kill switch by removing its billing permission
 # ---------------------------------------------------------------------------
-echo ">>> Step 1: Disabling kill switch (scaling Cloud Run service to 0)..."
-gcloud run services update "$FUNCTION_NAME" \
-  --max-instances=0 \
-  --region="$REGION" \
-  --project="$PROJECT_ID" \
+# The function may still be triggered by budget alerts, but without the
+# billing.projectManager role it cannot unlink billing from the project.
+echo ">>> Step 1: Disabling kill switch (removing billing permission)..."
+gcloud projects remove-iam-policy-binding "$PROJECT_ID" \
+  --member="serviceAccount:$SERVICE_ACCOUNT" \
+  --role="roles/billing.projectManager" \
   --quiet
 
-echo "    Kill switch disabled. Budget alerts will no longer trigger billing removal."
+echo "    Kill switch disabled. Budget alerts can no longer trigger billing removal."
 echo ""
 
 # ---------------------------------------------------------------------------
@@ -84,16 +88,17 @@ read -rp "    Re-enable the kill switch now? [y/N] " answer
 if [[ "$answer" =~ ^[Yy]$ ]]; then
   echo ""
   echo "    Re-enabling kill switch..."
-  gcloud run services update "$FUNCTION_NAME" \
-    --max-instances=1 \
-    --region="$REGION" \
-    --project="$PROJECT_ID" \
+  gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+    --member="serviceAccount:$SERVICE_ACCOUNT" \
+    --role="roles/billing.projectManager" \
     --quiet
   echo "    Kill switch re-enabled."
 else
   echo ""
-  echo "    Kill switch remains disabled. Re-enable it later with:"
-  echo "    gcloud run services update $FUNCTION_NAME --max-instances=1 --region=$REGION --project=$PROJECT_ID"
+  echo "    Kill switch remains disabled. Re-enable manually with:"
+  echo "    gcloud projects add-iam-policy-binding $PROJECT_ID --member=serviceAccount:$SERVICE_ACCOUNT --role=roles/billing.projectManager"
+  echo ""
+  echo "    Or run 'terraform apply' in the terraform/ directory to restore all settings."
 fi
 
 echo ""
